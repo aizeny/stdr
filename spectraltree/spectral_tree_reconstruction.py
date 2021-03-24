@@ -152,30 +152,7 @@ def join_trees_with_spectral_root_finding_ls(similarity_matrix, T1, T2, merge_me
     # the tree we get after combining T1 and T2
     T = dendropy.Tree(taxon_namespace=taxa_metadata.taxon_namespace)
 
-    """
-    # Extracting inecies from namespace    
-    T1_labels = [x.taxon.label for x in T1.leaf_nodes()]
-    T2_labels = [x.taxon.label for x in T2.leaf_nodes()]
-
-    half1_idx_bool = [x.label in T1_labels for x in taxa_metadata]
-    half1_idx = [i for i, x in enumerate(half1_idx_bool) if x]
-    T1.is_rooted = True
-    
-    half2_idx_bool = [x.label in T2_labels for x in taxa_metadata]
-    half2_idx = [i for i, x in enumerate(half2_idx_bool) if x]  
-    T2.is_rooted = True
-    
-    # Get sbmatrix of siilarities between nodes in subset 1 
-    S_11 = similarity_matrix[half1_idx,:]
-    S_11 = S_11[:,half1_idx]
-    # Get sbmatrix of siilarities between nodes in subset 2
-    S_22 = similarity_matrix[half2_idx,:]
-    S_22 = S_22[:,half2_idx]
-    # Get sbmatrix of cross similarities between nodes in subsets 1 and 2
-    S_12 = similarity_matrix[half1_idx,:]
-    S_12 = S_12[:,half2_idx]
-    """
-
+  
     T1_mask = taxa_metadata.tree2mask(T1)
     T2_mask = taxa_metadata.tree2mask(T2)
     # Make sure this is necessary
@@ -184,7 +161,6 @@ def join_trees_with_spectral_root_finding_ls(similarity_matrix, T1, T2, merge_me
 
     S_12 = similarity_matrix[np.ix_(T1_mask, T2_mask)]
 
-    # TODO: truncated svd?
     # u_12 is matrix
     [u_12,sigma_12,v_12] = np.linalg.svd(S_12)
     O1 = np.outer(u_12[:,0],u_12[:,0])
@@ -205,35 +181,26 @@ def join_trees_with_spectral_root_finding_ls(similarity_matrix, T1, T2, merge_me
             mask1B = (T1.mask ^ mask1A)
 
             score = compute_merge_score(mask1A, mask1B, T2_mask, similarity_matrix, u_12[:,0],sigma_12[0], v_12[0,:], O1, merge_method)
-            # DELETE ME bool_array = taxa_metadata.bipartition2mask(bp)
-            #DELETE ME score = compute_merge_score(bool_array,S_11,S_12,u_12[:,0],sigma_12[0],v_12[0,:],O1,merge_method)
             
             results['sizeA'].append(mask1A.sum())
             results['sizeB'].append(mask1B.sum())
             results['score'].append(score)
-            #results.append([sum(bool_array),sum(~bool_array), score])
             if score <min_score:
                 min_score = score
                 bp_min = bp
                 min_mask1A = mask1A
 
-        #bool_array = np.array(list(map(bool,[int(i) for i in bp_min.leafset_as_bitstring()]))[::-1])
         if verbose:
             if min_mask1A.sum()==1:
                 print('one')
         if verbose: print("one - merging: ",min_mask1A.sum(), " out of: ", T1_mask.sum())
         
         T1.reroot_at_edge(T1.bipartition_edge_map[bp_min])
-    #if len(bipartitions) > 1: 
-    #    T1.reroot_at_edge(T1.bipartition_edge_map[bp_min])
 
-    # find root of half 2
-    #[u_12,s,v_12] = np.linalg.svd(S_12.T)
-    
+
+    # find root of half 2   
     bipartitions2 = T2.bipartition_edge_map.keys()
     if verbose: print("len(bipartitions2)", len(bipartitions2))
-    # if len(bipartitions2) ==2:
-    #     print("NOOOOO")
     if len(bipartitions2) > 1:
         min_score = float("inf")
         results2 = {'sizeA': [], 'sizeB': [], 'score': []}
@@ -242,13 +209,11 @@ def join_trees_with_spectral_root_finding_ls(similarity_matrix, T1, T2, merge_me
             mask2B = (T2.mask ^ mask2A)
 
             score = compute_merge_score(mask2A, mask2B, T1_mask, similarity_matrix, v_12[0,:],sigma_12[0], u_12[:,0], O2, merge_method)
-            # DELETE ME bool_array = taxa_metadata.bipartition2mask(bp)
-            #DELETE ME score = compute_merge_score(bool_array,S_11,S_12,u_12[:,0],sigma_12[0],v_12[0,:],O1,merge_method)
             
             results2['sizeA'].append(mask2A.sum())
             results2['sizeB'].append(mask2B.sum())
             results2['score'].append(score)
-            #results.append([sum(bool_array),sum(~bool_array), score])
+            
             if score <min_score:
                 min_score = score
                 bp_min2 = bp
@@ -258,8 +223,6 @@ def join_trees_with_spectral_root_finding_ls(similarity_matrix, T1, T2, merge_me
                 print('one')
         if verbose: print("one - merging: ",min_mask2A.sum(), " out of: ", T2_mask.sum())
         T2.reroot_at_edge(T2.bipartition_edge_map[bp_min2])
-        #if len(bipartitions2) > 1: 
-        #    T2.reroot_at_edge(T2.bipartition_edge_map[bp_min2])
 
     T.seed_node.set_child_nodes([T1.seed_node,T2.seed_node])
     return T
@@ -280,154 +243,8 @@ def compute_score(bp,taxa_metadata,T1,T2_mask,similarity_matrix, u_12,sigma_12, 
     score = compute_merge_score(mask1A, mask1B, T2_mask, similarity_matrix, 
         u_12[:,0],sigma_12[0], v_12[0,:], O1, merge_method)
     return score
-    
-def join_trees_with_spectral_root_finding_par(similarity_matrix, T1, T2, merge_method, taxa_metadata, verbose = False):    
-    m, m2 = similarity_matrix.shape
-    assert m == m2, "Distance matrix must be square"
-    assert T1.taxon_namespace == T2.taxon_namespace == taxa_metadata.taxon_namespace
-    assert len(taxa_metadata) == m, "TaxaMetadata must correspond to the similarity matrix"
-
-    # the tree we get after combining T1 and T2
-    T = dendropy.Tree(taxon_namespace=taxa_metadata.taxon_namespace)
-
-    """
-    # Extracting inecies from namespace    
-    T1_labels = [x.taxon.label for x in T1.leaf_nodes()]
-    T2_labels = [x.taxon.label for x in T2.leaf_nodes()]
-
-    half1_idx_bool = [x.label in T1_labels for x in taxa_metadata]
-    half1_idx = [i for i, x in enumerate(half1_idx_bool) if x]
-    T1.is_rooted = True
-    
-    half2_idx_bool = [x.label in T2_labels for x in taxa_metadata]
-    half2_idx = [i for i, x in enumerate(half2_idx_bool) if x]  
-    T2.is_rooted = True
-    
-    # Get sbmatrix of siilarities between nodes in subset 1 
-    S_11 = similarity_matrix[half1_idx,:]
-    S_11 = S_11[:,half1_idx]
-    # Get sbmatrix of siilarities between nodes in subset 2
-    S_22 = similarity_matrix[half2_idx,:]
-    S_22 = S_22[:,half2_idx]
-    # Get sbmatrix of cross similarities between nodes in subsets 1 and 2
-    S_12 = similarity_matrix[half1_idx,:]
-    S_12 = S_12[:,half2_idx]
-    """
-
-    T1_mask = taxa_metadata.tree2mask(T1)
-    T2_mask = taxa_metadata.tree2mask(T2)
-    # Make sure this is necessary
-    T1.is_rooted = True
-    T2.is_rooted = True
-
-    S_12 = similarity_matrix[np.ix_(T1_mask, T2_mask)]
-
-    # TODO: truncated svd?
-    # u_12 is matrix
-    [u_12,sigma_12,v_12] = np.linalg.svd(S_12)
-    O1 = np.outer(u_12[:,0],u_12[:,0])
-    O2 = np.outer(v_12[0,:],v_12[0,:])
-
-    # find root of half 1
-    bipartitions1 = list(T1.bipartition_edge_map.keys())
-
-    if verbose: print("len(bipartitions1)", len(bipartitions1))
-
-    if len(bipartitions1) ==2:
-        print("NOOOOO")
-    if len(bipartitions1) > 1:
-        min_score = float("inf")
-        results = {'sizeA': [], 'sizeB': [], 'score': []}
-        
-        time_s = time.time()
-        #pool = mp.Pool(4)
-        #score_list = pool.map(compute_score,product(bipartitions1,[taxa_metadata],[T1],[T2_mask],
-        #    [similarity_matrix], [u_12],[sigma_12], [v_12], [O1], [merge_method]))
-        #parameters = product(bipartitions1,[taxa_metadata],[T1],[T2_mask],
-        #    [similarity_matrix], [u_12],[sigma_12], [v_12], [O1], [merge_method]
-        
-        # score_list = Parallel(n_jobs=4)(delayed(compute_score)(bp,taxa_metadata,T1,T2_mask,
-        #     similarity_matrix, u_12,sigma_12, v_12, O1, merge_method) for bp in bipartitions1)
-        bp_mask = [taxa_metadata.bipartition2mask(bp) for bp in bipartitions1]
-        score_list = Parallel(n_jobs=4)(delayed(compute_score_test2)(bp_mask[i], T1, T2_mask, similarity_matrix, u_12, sigma_12, v_12, O1, merge_method) for i in range(len(bp_mask)))
-        
-        #score_list = [pool.apply(compute_score, args=(bp,taxa_metadata,T1,T2_mask,
-        #    similarity_matrix, u_12,sigma_12, v_12, O1, merge_method)) for bp in bipartitions1]
-        #score_list = pool.map(compute_score(), [bp for bp in bipartitions1])        
-        #pool.close()
-        min_score_par = np.min(score_list)
-        min_idx_par = np.argmin(score_list)
-        runtime_par = time.time()-time_s
-
-        time_s = time.time()
-        for bp in bipartitions1:
-            mask1A = taxa_metadata.bipartition2mask(bp)
-            mask1B = (T1.mask ^ mask1A)
-
-            score = compute_merge_score(mask1A, mask1B, T2_mask, similarity_matrix, u_12[:,0],sigma_12[0], v_12[0,:], O1, merge_method)
-            # DELETE ME bool_array = taxa_metadata.bipartition2mask(bp)
-            #DELETE ME score = compute_merge_score(bool_array,S_11,S_12,u_12[:,0],sigma_12[0],v_12[0,:],O1,merge_method)
-            
-            #results['sizeA'].append(mask1A.sum())
-            #results['sizeB'].append(mask1B.sum())
-            #results['score'].append(score)
-            #results.append([sum(bool_array),sum(~bool_array), score])
-            if score <min_score:
-                min_score = score
-                bp_min = bp
-                min_mask1A = mask1A
-
-        runtime_seq = time.time()-time_s
-        print('score par: ',min_score_par, 'score_seq: ',min_score)
-        print('runtime par: ',runtime_par, 'runtime_seq: ',runtime_seq)
-
-        #bool_array = np.array(list(map(bool,[int(i) for i in bp_min.leafset_as_bitstring()]))[::-1])
-        if verbose:
-            if min_mask1A.sum()==1:
-                print('one')
-        if verbose: print("one - merging: ",min_mask1A.sum(), " out of: ", T1_mask.sum())
-        
-        T1.reroot_at_edge(T1.bipartition_edge_map[bp_min])
-    #if len(bipartitions) > 1: 
-    #    T1.reroot_at_edge(T1.bipartition_edge_map[bp_min])
-
-    # find root of half 2
-    #[u_12,s,v_12] = np.linalg.svd(S_12.T)
-    
-    bipartitions2 = T2.bipartition_edge_map.keys()
-    if verbose: print("len(bipartitions2)", len(bipartitions2))
-    # if len(bipartitions2) ==2:
-    #     print("NOOOOO")
-    if len(bipartitions2) > 1:
-        min_score = float("inf")
-        results2 = {'sizeA': [], 'sizeB': [], 'score': []}
-        for bp in bipartitions2:
-            mask2A = taxa_metadata.bipartition2mask(bp)
-            mask2B = (T2.mask ^ mask2A)
-
-            score = compute_merge_score(mask2A, mask2B, T1_mask, similarity_matrix, v_12[0,:],sigma_12[0], u_12[:,0], O2, merge_method)
-            # DELETE ME bool_array = taxa_metadata.bipartition2mask(bp)
-            #DELETE ME score = compute_merge_score(bool_array,S_11,S_12,u_12[:,0],sigma_12[0],v_12[0,:],O1,merge_method)
-            
-            results2['sizeA'].append(mask2A.sum())
-            results2['sizeB'].append(mask2B.sum())
-            results2['score'].append(score)
-            #results.append([sum(bool_array),sum(~bool_array), score])
-            if score <min_score:
-                min_score = score
-                bp_min2 = bp
-                min_mask2A = mask2A
-        if verbose:
-            if min_mask2A.sum()==1:
-                print('one')
-        if verbose: print("one - merging: ",min_mask2A.sum(), " out of: ", T2_mask.sum())
-        T2.reroot_at_edge(T2.bipartition_edge_map[bp_min2])
-        #if len(bipartitions2) > 1: 
-        #    T2.reroot_at_edge(T2.bipartition_edge_map[bp_min2])
-
-    T.seed_node.set_child_nodes([T1.seed_node,T2.seed_node])
-    return T
-
+  
+  
 class STDR(ReconstructionMethod):
     def __init__(self, inner_method, similarity_metric):
         self.inner_method = inner_method
@@ -494,26 +311,15 @@ class STDR(ReconstructionMethod):
                     cur_node = cur_node.parent.left
                 else:
                     cur_node = cur_node.parent
-        #DELETE MEpartitioning_tree.root.tree.taxon_namespace = self.taxon_namespace
         return partitioning_tree.root.tree
         
     def splitTaxa(self,node,num_gaps,min_split):
         cur_similarity = self.similarity_matrix[node.bitmap,:]
         cur_similarity = cur_similarity[:,node.bitmap]
         laplacian = np.diag(np.sum(cur_similarity, axis = 0)) - cur_similarity
-        # t= time.time()
         e,V = scipy.linalg.eigh(laplacian, eigvals = (0,1))
-        # tt = time.time() - t
-        # t= time.time()
-        # _, V = np.linalg.eigh(laplacian)
-        # tt = time.time() - t
         bool_bipartition = partition_taxa(V[:,1],cur_similarity,num_gaps,min_split)
 
-        """# %%
-        if np.minimum(sum(bool_bipartition),sum(~bool_bipartition))<min_split:
-            print("????")
-            bool_bipartition = partition_taxa(V[:,1],cur_similarity,num_gaps,min_split)
-        """
 
         #Building partitioning bitmaps from partial bitmaps
         ll = np.array([i for i, x in enumerate(node.bitmap) if x])
@@ -521,21 +327,14 @@ class STDR(ReconstructionMethod):
         not_bool_bipartition = [~i for i in bool_bipartition]
         ll2 = ll[not_bool_bipartition]
 
-        # TODO: use TaxaMetadata.taxa2mask here
         bitmap1 = [True if i in ll1 else False for i in range(len(self.taxa_metadata))]
         bitmap2 = [True if i in ll2 else False for i in range(len(self.taxa_metadata))]
         return bitmap1, bitmap2
 
     def margeTreesLeftRight(self, node, merge_method):
-        # DELETE ME cur_meta = self.taxa_metadata.mask2sub_taxa_metadata(np.array(node.bitmap))
-
-        # cur_similarity = self.similarity_matrix[node.bitmap,:]
-        # cur_similarity = cur_similarity[:,node.bitmap]
         return join_trees_with_spectral_root_finding_ls(self.similarity_matrix, node.left.tree, node.right.tree, merge_method, self.taxa_metadata, verbose=self.verbose)
-        #return join_trees_with_spectral_root_finding_par(self.similarity_matrix, node.left.tree, node.right.tree, merge_method, self.taxa_metadata, verbose=self.verbose)
     
     def reconstruct_alg_wrapper(self, node, **kargs):
-        # DELETE namespace1 = dendropy.TaxonNamespace([self.taxon_namespace[i] for i in [i for i, x in enumerate(node.bitmap) if x]]) 
         metadata1 = self.taxa_metadata.mask2sub_taxa_metadata(np.array(node.bitmap))
         
         if issubclass(self.inner_method, DistanceReconstructionMethod):
